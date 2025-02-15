@@ -66,7 +66,7 @@ from tenacity import (
     wait_exponential,
     retry_if_exception_type,
 )
-from lightrag.utils import (
+from minirag.utils import (
     wrap_embedding_func_with_attrs,
     locate_json_string_body_from_string,
     safe_unicode_decode,
@@ -95,7 +95,7 @@ async def openai_complete_if_cache(
     prompt,
     system_prompt=None,
     history_messages=[],
-    base_url=None,
+    base_url: str = os.getenv("LLM_BINDING_HOST", None),
     api_key=None,
     **kwargs,
 ) -> str:
@@ -209,7 +209,10 @@ async def nvidia_openai_complete(
     return result
 
 
-@wrap_embedding_func_with_attrs(embedding_dim=1536, max_token_size=8192)
+@wrap_embedding_func_with_attrs(
+    embedding_dim=int(os.getenv("EMBEDDING_DIM", 1536)),
+    max_token_size=int(os.getenv("MAX_EMBED_TOKENS", 8192))
+)
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=4, max=60),
@@ -219,15 +222,16 @@ async def nvidia_openai_complete(
 )
 async def openai_embed(
     texts: list[str],
-    model: str = "text-embedding-3-small",
-    base_url: str = None,
-    api_key: str = None,
+    api_key: str = os.getenv("EMBEDDING_BINDING_API_KEY"),
+    model: str = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
+    base_url: str = os.getenv("EMBEDDING_BINDING_HOST", None),
 ) -> np.ndarray:
-    if api_key:
-        os.environ["OPENAI_API_KEY"] = api_key
-
-    openai_async_client = (
-        AsyncOpenAI() if base_url is None else AsyncOpenAI(base_url=base_url)
+    if not api_key:
+        raise ValueError("EMBEDDING_BINDING_API_KEY must be set in environment or passed explicitly")
+        
+    openai_async_client = AsyncOpenAI(
+        api_key=api_key,
+        base_url=base_url
     )
     response = await openai_async_client.embeddings.create(
         model=model, input=texts, encoding_format="float"
